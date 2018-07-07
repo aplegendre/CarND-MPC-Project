@@ -32,15 +32,6 @@ string hasData(string s) {
   return "";
 }
 
-// Evaluate a polynomial.
-double polyeval(Eigen::VectorXd coeffs, double x) {
-  double result = 0.0;
-  for (int i = 0; i < coeffs.size(); i++) {
-    result += coeffs[i] * pow(x, i);
-  }
-  return result;
-}
-
 // Fit a polynomial.
 // Adapted from
 // https://github.com/JuliaMath/Polynomials.jl/blob/master/src/Polynomials.jl#L676-L716
@@ -50,11 +41,11 @@ Eigen::VectorXd polyfit(Eigen::VectorXd xvals, Eigen::VectorXd yvals,
   assert(order >= 1 && order <= xvals.size() - 1);
   Eigen::MatrixXd A(xvals.size(), order + 1);
 
-  for (int i = 0; i < xvals.size(); i++) {
+  for (unsigned int i = 0; i < xvals.size(); i++) {
     A(i, 0) = 1.0;
   }
 
-  for (int j = 0; j < xvals.size(); j++) {
+  for (unsigned int j = 0; j < xvals.size(); j++) {
     for (int i = 0; i < order; i++) {
       A(j, i + 1) = A(j, i) * xvals(j);
     }
@@ -63,6 +54,24 @@ Eigen::VectorXd polyfit(Eigen::VectorXd xvals, Eigen::VectorXd yvals,
   auto Q = A.householderQr();
   auto result = Q.solve(yvals);
   return result;
+}
+
+// Evaluate a polynomial.
+static double polyeval(Eigen::VectorXd coeffs, double x) {
+	double result = 0.0;
+	for (int i = 0; i < coeffs.size(); i++) {
+		result += coeffs[i] * pow(x, i);
+	}
+	return result;
+}
+
+// Evaluate a polynomial's first derivative.
+static double derivative(Eigen::VectorXd coeffs, double x) {
+	double result = 0.0;
+	for (int i = 1; i < coeffs.size(); i++) {
+		result += coeffs[i] * i * pow(x, i - 1);
+	}
+	return result;
 }
 
 int main() {
@@ -91,21 +100,59 @@ int main() {
           double py = j[1]["y"];
           double psi = j[1]["psi"];
           double v = j[1]["speed"];
+		  double delta = j[1]["steering_angle"];
+		  double a = j[1]["throttle"];
+
+		  // Coordinate transform taken from project walkthrough Q&A
+		  for (unsigned int i = 0; i < ptsx.size(); i++) {
+			  double shift_x = ptsx[i] - px;
+			  double shift_y = ptsy[i] - py;
+			  ptsx[i] = (shift_x * cos(0.0 - psi) - shift_y * sin(0.0 - psi));
+			  ptsy[i] = (shift_x * sin(0.0 - psi) + shift_y * cos(0.0 - psi));
+		  }
 
           /*
-          * TODO: Calculate steering angle and throttle using MPC.
+          * Calculate steering angle and throttle using MPC.
           *
           * Both are in between [-1, 1].
           *
           */
-          double steer_value;
-          double throttle_value;
+		  // Eigen conversion from project walkthrough Q&A
+		  double* ptrx = &ptsx[0];
+		  Eigen::Map<Eigen::VectorXd> ptsx_transform(ptrx, 6);
+
+		  double* ptry = &ptsy[0];
+		  Eigen::Map<Eigen::VectorXd> ptsy_transform(ptry, 6);
+
+		  Eigen::VectorXd coeffs = polyfit(ptsx_transform, ptsy_transform, 3);
+		  double cte = polyeval(coeffs, 0);
+		  double epsi = -atan(coeffs[1]);
+
+		  // Model forward by the length of latency
+		  double Lf = 2.67;
+		  double dt = 0.1;
+		  double x1 = v * dt;
+		  double y1 = 0;
+		  double psi1 = - v / Lf * dt * delta;
+		  double v1 = v + a * dt;
+
+		  Eigen::VectorXd state = Eigen::VectorXd(6);
+		  state << x1, y1, psi1, v1, cte, epsi;
+		  
+		  vector<double> mpcVals = mpc.Solve(state, coeffs);
+          double steer_value = mpcVals.at(0);
+          double throttle_value = mpcVals.at(1);
 
           json msgJson;
           // NOTE: Remember to divide by deg2rad(25) before you send the steering value back.
           // Otherwise the values will be in between [-deg2rad(25), deg2rad(25] instead of [-1, 1].
-          msgJson["steering_angle"] = steer_value;
+		  msgJson["steering_angle"] = steer_value/(deg2rad(25)*Lf);
           msgJson["throttle"] = throttle_value;
+
+
+		  //Display the waypoints/reference line
+		  vector<double> next_x_vals;
+		  vector<double> next_y_vals;
 
           //Display the MPC predicted trajectory 
           vector<double> mpc_x_vals;
@@ -114,15 +161,23 @@ int main() {
           //.. add (x,y) points to list here, points are in reference to the vehicle's coordinate system
           // the points in the simulator are connected by a Green line
 
-          msgJson["mpc_x"] = mpc_x_vals;
-          msgJson["mpc_y"] = mpc_y_vals;
 
-          //Display the waypoints/reference line
-          vector<double> next_x_vals;
-          vector<double> next_y_vals;
+		  // Track display taken from project walkthrough Q&A
+		  double poly_inc = 2.5;
+		  int num_points = 25;
+		  for (int i = 0; i < num_points; i++) {
+			  next_x_vals.push_back(poly_inc*i);
+			  next_y_vals.push_back(polyeval(coeffs, poly_inc*i));
+		  }
 
-          //.. add (x,y) points to list here, points are in reference to the vehicle's coordinate system
-          // the points in the simulator are connected by a Yellow line
+		  unsigned int N = mpcVals.at(2);
+		  for (unsigned int i = 0; i < N; i++) {
+			  mpc_x_vals.push_back(mpcVals.at(3 + i));
+			  mpc_y_vals.push_back(mpcVals.at(3 + N + i));
+		  }
+
+		  msgJson["mpc_x"] = mpc_x_vals;
+		  msgJson["mpc_y"] = mpc_y_vals;
 
           msgJson["next_x"] = next_x_vals;
           msgJson["next_y"] = next_y_vals;

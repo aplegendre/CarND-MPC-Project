@@ -27,23 +27,23 @@ I implemented the model predicitive control (MPC) algorithm that was presented i
 
 The model I used includes 6 elements in the state vector: x position, y position, heading (`psi`), velocity (`v`), cross-track error (`cte`), and steering error (`epsi`). It also includes 2 actuators: throttle (`a`) and steering angle (`delta`).
 
-The update equations follow the standard kinematic model that was presented in the lesson:
-  `x_{t+1} = x_t + v_t * cos(psi) * dt`
-  `y_{t+1} = y_t + v_t * sin(psi) * dt`
-  `psi_{t+1} = psi_t - v_t / L_f * dt * delta`
-  `v_{t+1} = v_t + a_t * dt`
-  `cte_{t+1} = f(x_t) - y_t + v_t * sin(epsi_t) * dt`
-  `epsi_{t+1} = \psi_t - f'(x_t) - v_t / L_f * dt * delta_t`
+The update equations follow the standard kinematic model that was presented in the lesson:\
+  `x_{t+1} = x_t + v_t * cos(psi) * dt`\
+  `y_{t+1} = y_t + v_t * sin(psi) * dt`\
+  `psi_{t+1} = psi_t - v_t / L_f * dt * delta`\
+  `v_{t+1} = v_t + a_t * dt`\
+  `cte_{t+1} = f(x_t) - y_t + v_t * sin(epsi_t) * dt`\
+  `epsi_{t+1} = psi_t - f'(x_t) - v_t / L_f * dt * delta_t`\
 where `L_f = 2.67` as provided in the lesson, `f(x)` is the best fit polynomial to the waypoints, and `dt` is the prediction timestep for the model predictive controller. Note that the steering inputs (`delta`) are inverted in these equations due to the setup of the simulator. This was a point of frustration for me since I had orginally inverted the input in only one of the two equations that have it. This resulted in an inability for the MPC to calculate a solution at all and ultimately led me to the Q&A video for debug.
 
 The controller takes the fitted polynomial and adjusts each of the values within the above defined constraint equations and within the actuator limits to find the inputs that will optimize the following cost functions, which are all summed together for each prediction time step.
 
-Cost equations based on the desired reference state are used to target zero cross-track error, zero steering error, and a desired reference speed (in this case, 70):
-  `Cost = 2000 * cte^2 + 2000 * epsi^2 + (v - v_ref)^2`
+Cost equations based on the desired reference state are used to target zero cross-track error, zero steering error, and a desired reference speed (in this case, 70):\
+  `Cost = 2000 * cte^2 + 2000 * epsi^2 + (v - v_ref)^2`\
 The weights (2000, 2000, 1) were taken from the Q&A video and not further tuned due to good performance.
 
-Cost equations based on both absolute and differential actuator minimization were used to ensure a smooth and continuous path along the track:
-  `Cost = 5 * delta^2 + 200 * (delta_{t+1} - delta_t)^2 + 5 * a^2 + 10 * (a_{t+1} - a_t)^2`
+Cost equations based on both absolute and differential actuator minimization were used to ensure a smooth and continuous path along the track:\
+  `Cost = 5 * delta^2 + 200 * (delta_{t+1} - delta_t)^2 + 5 * a^2 + 10 * (a_{t+1} - a_t)^2`\
 Again, the weights were taken from the Q&A video without further tuning.
 
 #### 2. Timestep Length and Elapsed Duration (N & dt)
